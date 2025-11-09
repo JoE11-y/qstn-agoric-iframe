@@ -6,36 +6,26 @@
  *
  * Communication with parent window via postMessage API.
  *
- * IMPORTANT: SES lockdown is applied first to harden JavaScript built-ins
- * before any other code runs. This is required by Agoric and is safe here
- * because we're in an isolated iframe.
+ * IMPORTANT: installLockdownSES MUST be imported first to ensure
+ * SES lockdown is applied before any other code runs.
  */
-import "ses"; // adds lockdown, harden, and Compartment
-import "@endo/eventual-send/shim.js"; // adds support for E() and eventual send
+
+// CRITICAL: This import must be FIRST
+import "./installLockdownSES.js";
 
 import { Buffer } from "buffer";
 import {
   suggestChain,
   makeAgoricWalletConnection,
 } from "@agoric/web-components";
-import { makeAgoricChainStorageWatcher } from "@agoric/rpc";
+import {
+  makeAgoricChainStorageWatcher,
+  AgoricChainStoragePathKind as Kind,
+} from "@agoric/rpc";
 
 // Make Buffer available globally for Agoric packages
 globalThis.Buffer = Buffer;
 
-console.log("[Agoric Sandbox] Applying SES lockdown...");
-
-// Apply SES lockdown BEFORE any other code runs
-// This hardens JavaScript built-ins to prevent prototype pollution
-// lockdown is now available globally from 'ses' import
-lockdown({
-  errorTaming: "unsafe", // Allow detailed error messages for debugging
-  overrideTaming: "severe", // Prevent prototype modifications
-  consoleTaming: "unsafe", // Allow console.log for debugging
-  stackFiltering: "verbose", // Show full stack traces
-});
-
-console.log("[Agoric Sandbox] SES lockdown applied successfully");
 console.log("[Agoric Sandbox] Loading v1.0.0");
 
 // Update SES status in UI
@@ -57,6 +47,13 @@ const CONFIG = {
   NETWORK_CONFIG_HREF: "https://devnet.agoric.net/network-config",
 };
 
+// Brands
+  const BLD = {
+    brandKey: 'BLD',
+    decimals: 6,
+  };
+  
+
 // Global state
 const state = {
   watcher: null,
@@ -64,6 +61,7 @@ const state = {
   currentWalletRecord: null,
   brands: null,
   contractInstance: null,
+  contractInstallation: null,
   isInitialized: false,
 };
 
@@ -89,6 +87,60 @@ function updateWalletStatus(status) {
 }
 
 /**
+ * Create watcher handlers for watching chain state
+ */
+function createWatcherHandlers(watcher) {
+  return {
+    watchInstances: () => {
+      watcher.watchLatest(
+        [Kind.Data, "published.agoricNames.instance"],
+        (instances) => {
+          console.log("[Agoric Sandbox] Got instances:", instances);
+          // Find qstnContract instance
+          state.contractInstance = instances.find(
+            ([name]) => name === "qstnContract"
+          )?.[1];
+
+          console.log(
+            "[Agoric Sandbox] Contract instance:",
+            state.contractInstance
+          );
+        }
+      );
+    },
+
+    watchInstallations: () => {
+      watcher.watchLatest(
+        [Kind.Data, "published.agoricNames.installation"],
+        (installations) => {
+          console.log("[Agoric Sandbox] Got installations:", installations);
+          // Find qstnContract installation
+          state.contractInstallation = installations.find(
+            ([name]) => name === "qstnContract"
+          )?.[1];
+
+          console.log(
+            "[Agoric Sandbox] Contract installation:",
+            state.contractInstallation
+          );
+        }
+      );
+    },
+
+    watchBrands: () => {
+      watcher.watchLatest(
+        [Kind.Data, "published.agoricNames.brand"],
+        (brands) => {
+          console.log("[Agoric Sandbox] Got brands:", brands);
+          // Convert array of tuples to object
+          state.brands = Object.fromEntries(brands);
+        }
+      );
+    },
+  };
+}
+
+/**
  * Setup Chain Storage Watcher
  *
  * This must be called BEFORE connecting the wallet!
@@ -108,27 +160,11 @@ async function setupWatcher() {
     // Store watcher - CRITICAL: Must exist before wallet connection!
     state.watcher = watcher;
 
-    // Watch brands from chain storage
-    // Path format: published.agoricNames.brand
-    watcher.watchLatest(
-      ["published", "agoricNames", "brand"],
-      (brandsArray) => {
-        console.log("[Agoric Sandbox] Brands updated:", brandsArray);
-        // brandsArray is an array of [name, brand] tuples
-        state.brands = Object.fromEntries(brandsArray);
-      }
-    );
-
-    // Watch contract instances
-    // Path format: published.agoricNames.instance
-    watcher.watchLatest(
-      ["published", "agoricNames", "instance"],
-      (instancesArray) => {
-        console.log("[Agoric Sandbox] Instances updated:", instancesArray);
-        // Store the instances array - you can search for your contract here
-        state.contractInstance = instancesArray;
-      }
-    );
+    // Create and use watcher handlers
+    const handlers = createWatcherHandlers(watcher);
+    handlers.watchInstances();
+    handlers.watchBrands();
+    handlers.watchInstallations();
 
     console.log("[Agoric Sandbox] Watcher setup complete");
     return watcher;
@@ -216,10 +252,13 @@ function watchWallet() {
       return;
     }
 
-    // Watch wallet state for offer updates
+    // Watch wallet state for offer updates using Kind.Data prefix
     state.watcher.watchLatest(
-      ["published", "wallet", state.wallet.address, "current"],
+      [Kind.Data, `published.wallet.${state.wallet.address}.current`],
       (currentWalletRecord) => {
+        if (!currentWalletRecord) {
+          return;
+        }
         console.log(
           "[Agoric Sandbox] Wallet state updated:",
           currentWalletRecord
@@ -245,10 +284,15 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
     proposal,
     offerArgs,
   });
-
   // Validate state
   if (!state.wallet) {
     throw new Error("Wallet not connected. Call connectWallet() first.");
+  }
+
+  if (!state.contractInstallation && !state.contractInstance) {
+    throw new Error(
+      "Contract not found. Ensure contract instance or installation are loaded."
+    );
   }
 
   if (!state.brands) {
@@ -291,6 +335,33 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
       reject(error);
     }
   });
+}
+
+/**
+ * Create Account Invitation
+ */
+
+async function createAccountAction(){
+  try {
+    console.log("[Agoric Sandbox] Creating account invitation...");
+    updateStatus("Creating account invitation...", "loading");
+
+    // Get brand
+    const brand = state.brands?.["BLD"];
+    if (!brand) {
+      throw new Error("BLD brand not found");
+    }
+
+    const give = {
+      []
+    }
+
+
+  }catch (error) {
+    console.error("[Agoric Sandbox] Create account invitation failed:", error);
+    updateStatus(`Transaction failed: ${error.message}`, "error");
+    throw error;
+  }
 }
 
 /**

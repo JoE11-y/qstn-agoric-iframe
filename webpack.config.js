@@ -76,7 +76,8 @@ module.exports = {
       scriptLoading: 'blocking',
       minify: false, // Disable minify for debugging
     }),
-    new InlineScriptPlugin(), // Inline the JavaScript after HTML is generated
+    // InlineScriptPlugin disabled for local dev - enable only for CDN deployment
+    // new InlineScriptPlugin(),
   ],
   resolve: {
     fallback: {
