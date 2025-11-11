@@ -1,7 +1,7 @@
 {
   "name": "@qstn/agoric-iframe-sandbox",
   "version": "1.0.0",
-  "description": "Isolated Agoric iframe sandbox for blockchain payments - no dependency conflicts",
+  "description": "Isolated Agoric iframe sandbox for blockchain payments and interactions using SES.",
   "main": "dist/agoric-sandbox.html",
   "files": [
     "dist"

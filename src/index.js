@@ -58,7 +58,6 @@ const BLD = {
 const state = {
   watcher: null,
   wallet: null,
-  account: null,
   currentWalletRecord: null,
   brands: null,
   contractInstance: null,
@@ -214,16 +213,6 @@ async function connectWallet() {
 
     state.wallet = wallet;
 
-    const account = await wallet.signingClient.getAccount();
-
-    if (!account) {
-      throw new Error("Failed to retrieve account from wallet");
-    }
-
-    state.account = account;
-
-    console.log("[Agoric Sandbox] Wallet account pubkey:", account.pubkey);
-
     console.log("[Agoric Sandbox] Wallet connected:", wallet.address);
 
     updateStatus(`Connected: ${wallet.address.slice(0, 12)}...`, "success");
@@ -348,7 +337,7 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
     }
   });
 }
-async function makeADR036AminoDoc(message, signerAddr, chainId) {
+async function makeADR036AminoDoc(message, signerAddr) {
   return makeSignDoc(
     [
       {
@@ -360,7 +349,7 @@ async function makeADR036AminoDoc(message, signerAddr, chainId) {
       },
     ],
     { gas: "0", amount: [] },
-    chainId,
+    "",
     undefined,
     0,
     0
@@ -371,11 +360,11 @@ async function makeADR036AminoDoc(message, signerAddr, chainId) {
  * Sign data with wallet
  * @param {Object} params
  * @param {string} params.payload - Data to sign
- * @returns {Promise<{signedData: Object, pubKey: Object, signature: string}>} Signed data with pub key and signature
+ * @returns {Promise<{signedData: Object, signature: Object}>} Signed data with pub key and signature
  */
-async function signData({ payload }) {
+async function signData({ data }) {
   try {
-    console.log("[Agoric Sandbox] Signing data:", payload);
+    console.log("[Agoric Sandbox] Signing data:", data);
     updateStatus("Signing data...", "loading");
 
     const { keplr } = window;
@@ -390,11 +379,7 @@ async function signData({ payload }) {
       watchWallet();
     }
 
-    const signDoc = await makeADR036AminoDoc(
-      payload,
-      state.wallet.address,
-      CONFIG.CHAIN_ID
-    );
+    const signDoc = await makeADR036AminoDoc(data, state.wallet.address);
 
     const signResponse = await keplr.signAmino(
       CONFIG.CHAIN_ID,
@@ -404,7 +389,6 @@ async function signData({ payload }) {
 
     return {
       signedData: signResponse.signed,
-      pubKey: state.account.pubKey,
       signature: signResponse.signature,
     };
   } catch (error) {
