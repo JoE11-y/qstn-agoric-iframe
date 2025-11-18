@@ -2,6 +2,9 @@
 
 An isolated iframe component for the QSTN application that handles all Agoric blockchain interactions. This sandbox runs in a separate domain to prevent SES (Secure EcmaScript) lockdown conflicts with the main QSTN frontend.
 
+**Live Deployment**: [https://qstn-agoric-iframe.vercel.app/](https://qstn-agoric-iframe.vercel.app/)
+**Iframe Endpoint**: [https://qstn-agoric-iframe.vercel.app/agoric-sandbox.html](https://qstn-agoric-iframe.vercel.app/agoric-sandbox.html)
+
 ## Purpose
 
 The QSTN main application requires interaction with the Agoric blockchain for survey funding and reward distribution. However, the Agoric SDK applies SES lockdown, which hardens JavaScript built-ins and conflicts with React and other dependencies in the main app. This sandbox solves that problem by isolating all Agoric code in a cross-origin iframe.
