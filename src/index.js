@@ -61,7 +61,6 @@ const state = {
   currentWalletRecord: null,
   brands: null,
   contractInstance: null,
-  contractInstallation: null,
   isInitialized: false,
 };
 
@@ -96,32 +95,14 @@ function createWatcherHandlers(watcher) {
         [Kind.Data, "published.agoricNames.instance"],
         (instances) => {
           console.log("[Agoric Sandbox] Got instances:", instances);
-          // Find qstnContract instance
+          // Find qstnRouterV1 instance
           state.contractInstance = instances.find(
-            ([name]) => name === "qstnContract"
+            ([name]) => name === "qstnRouterV1"
           )?.[1];
 
           console.log(
             "[Agoric Sandbox] Contract instance:",
             state.contractInstance
-          );
-        }
-      );
-    },
-
-    watchInstallations: () => {
-      watcher.watchLatest(
-        [Kind.Data, "published.agoricNames.installation"],
-        (installations) => {
-          console.log("[Agoric Sandbox] Got installations:", installations);
-          // Find qstnContract installation
-          state.contractInstallation = installations.find(
-            ([name]) => name === "qstnRouterV2"
-          )?.[1];
-
-          console.log(
-            "[Agoric Sandbox] Contract installation:",
-            state.contractInstallation
           );
         }
       );
@@ -164,7 +145,6 @@ async function setupWatcher() {
     const handlers = createWatcherHandlers(watcher);
     handlers.watchInstances();
     handlers.watchBrands();
-    handlers.watchInstallations();
 
     console.log("[Agoric Sandbox] Watcher setup complete");
     return watcher;
@@ -290,7 +270,7 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
     throw new Error("Wallet not connected. Call connectWallet() first.");
   }
 
-  if (!state.contractInstallation && !state.contractInstance) {
+  if (!state.contractInstance) {
     throw new Error(
       "Contract not found. Ensure contract instance or installation are loaded."
     );
@@ -312,7 +292,6 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
             reject(new Error(errorMsg));
             break;
           }
-
           case "accepted":
             console.log("[Agoric Sandbox] Offer accepted!", update);
             resolve(update);
@@ -325,6 +304,7 @@ async function makeOffer({ invitationSpec, proposal, offerArgs = {} }) {
 
           case "seated":
             console.log("[Agoric Sandbox] Offer seated (pending)");
+            resolve(update);
             break;
 
           default:
@@ -436,7 +416,7 @@ async function fundSurvey({ surveyId, messages, denom, totalAmount }) {
     // TODO: Replace with your actual contract invitation spec
     const invitationSpec = {
       source: "contract",
-      instance: state.contractInstallation || state.contractInstance,
+      instance: state.contractInstance,
       publicInvitationMaker: "makeSendTransactionInvitation",
     };
 
@@ -467,7 +447,8 @@ async function fundSurvey({ surveyId, messages, denom, totalAmount }) {
 
     return {
       success: true,
-      txHash: result.data?.offerId || "unknown",
+      offerId: result.data?.offerId || "unknown",
+      txHash: result.data?.txn?.transactionHash || "unknown",
       height: 0,
     };
   } catch (error) {
@@ -527,8 +508,8 @@ async function claimRewards({ surveyId, messages, denom, totalAmount }) {
     // TODO: Implement your actual claim rewards contract interaction
     const invitationSpec = {
       source: "contract",
-      instance: state.contractInstallation || state.contractInstance,
-      publicInvitationMaker: "makeClaimRewardsInvitation",
+      instance: state.contractInstance,
+      publicInvitationMaker: "makeSendTransactionInvitation",
     };
 
     const proposal = {
@@ -555,7 +536,8 @@ async function claimRewards({ surveyId, messages, denom, totalAmount }) {
 
     return {
       success: true,
-      txHash: result.data?.offerId || "unknown",
+      offerId: result.data?.offerId || "unknown",
+      txHash: result.data?.txn?.transactionHash || "unknown",
       height: 0,
     };
   } catch (error) {
