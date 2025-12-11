@@ -40,13 +40,44 @@ if (typeof document !== "undefined") {
   });
 }
 
-// Configuration
-const CONFIG = {
-  CHAIN_ID: "agoricdev-25",
-  RPC_ENDPOINT: "https://devnet.rpc.agoric.net:443",
-  REST_ENDPOINT: "https://devnet.api.agoric.net",
-  NETWORK_CONFIG_HREF: "https://devnet.agoric.net/network-config",
+export const networkConfigs = {
+  mainnet: {
+    CHAIN_ID: "agoric-3",
+    RPC_ENDPOINT: "https://followmain.rpc.agoric.net:443",
+    REST_ENDPOINT: "https://followmain.api.agoric.net",
+    NETWORK_CONFIG_HREF: "https://followmain.agoric.net/network-config",
+  },
+  devnet: {
+    CHAIN_ID: "agoricdev-25",
+    RPC_ENDPOINT: "https://devnet.rpc.agoric.net:443",
+    REST_ENDPOINT: "https://devnet.api.agoric.net",
+    NETWORK_CONFIG_HREF: "https://devnet.agoric.net/network-config",
+  },
+  emerynet: {
+    CHAIN_ID: "agoric-emerynet-9",
+    RPC_ENDPOINT: "https://emerynet.rpc.agoric.net:443",
+    NETWORK_CONFIG_HREF: "https://emerynet.agoric.net/network-config",
+    REST_ENDPOINT: "https://emerynet.api.agoric.net",
+  },
+  localhost: {
+    CHAIN_ID: "agoriclocal",
+    RPC_ENDPOINT: "http://localhost:26657",
+    NETWORK_CONFIG_HREF: "https://local.agoric.net/network-config",
+    REST_ENDPOINT: "http://localhost:1317",
+  },
 };
+
+/**
+ * Get network configuration
+ * @param {string | null | undefined} network - Network name
+ * @returns {Object} Network configuration
+ */
+function getConfig(network) {
+  // Normalize to default if undefined/null/empty
+  const normalizedNetwork = network || "devnet";
+
+  return networkConfigs[normalizedNetwork] || networkConfigs.devnet;
+}
 
 // Brands
 const BLD = {
@@ -56,6 +87,7 @@ const BLD = {
 
 // Global state
 const state = {
+  network: null,
   watcher: null,
   wallet: null,
   currentWalletRecord: null,
@@ -97,7 +129,7 @@ function createWatcherHandlers(watcher) {
           console.log("[Agoric Sandbox] Got instances:", instances);
           // Find qstnRouterV1 instance
           state.contractInstance = instances.find(
-            ([name]) => name === "qstnRouterV1"
+            ([name]) => name === "qstnRouterV3"
           )?.[1];
 
           console.log(
@@ -127,19 +159,32 @@ function createWatcherHandlers(watcher) {
  * This must be called BEFORE connecting the wallet!
  * The watcher monitors chain state and provides data to the wallet connection.
  */
-async function setupWatcher() {
+
+/**
+ * Sign data with wallet
+ * @param {Object} params
+ * @param {string | null | undefined} params.network - Network to connect to
+ */
+async function setupWatcher({ network } = {}) {
   try {
+    // Normalize network at entry point
+    const targetNetwork = network || "devnet";
+
     console.log("[Agoric Sandbox] Setting up chain storage watcher...");
     updateStatus("Initializing chain storage watcher...", "loading");
 
+    const config = getConfig(targetNetwork);
+
     // Initialize watcher with REST API endpoint and chain ID
     const watcher = makeAgoricChainStorageWatcher(
-      CONFIG.REST_ENDPOINT,
-      CONFIG.CHAIN_ID
+      config.REST_ENDPOINT,
+      config.CHAIN_ID
     );
 
     // Store watcher - CRITICAL: Must exist before wallet connection!
     state.watcher = watcher;
+
+    state.network = targetNetwork;
 
     // Create and use watcher handlers
     const handlers = createWatcherHandlers(watcher);
@@ -160,16 +205,24 @@ async function setupWatcher() {
  *
  * IMPORTANT: Watcher must be initialized before calling this!
  */
-async function connectWallet() {
+/**
+ * Sign data with wallet
+ * @param {Object} params
+ * @param {string | null | undefined} params.network - Network to connect to
+ */
+async function connectWallet({ network } = {}) {
   try {
+    // Normalize network at entry point
+    const targetNetwork = network || "devnet";
+
     console.log("[Agoric Sandbox] Connecting wallet...");
     updateStatus("Connecting to Keplr...", "loading");
     updateWalletStatus("Connecting...");
 
     // CRITICAL: Check if watcher exists first!
-    if (!state.watcher) {
-      console.log("[Agoric Sandbox] Watcher not initialized, setting up...");
-      await setupWatcher();
+    if (!state.watcher || targetNetwork !== state.network) {
+      console.log("[Agoric Sandbox] Watcher not initialized or network changed, setting up...");
+      await setupWatcher({ network: targetNetwork });
       // Wait a bit for watcher to sync initial data
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
@@ -181,14 +234,16 @@ async function connectWallet() {
 
     // Suggest Agoric chain to Keplr
     console.log("[Agoric Sandbox] Suggesting chain to Keplr...");
-    await suggestChain(CONFIG.NETWORK_CONFIG_HREF);
+
+    const config = getConfig(targetNetwork);
+    await suggestChain(config.NETWORK_CONFIG_HREF);
 
     // Make Agoric wallet connection
     // Pass watcher as first parameter, RPC endpoint as second
     console.log("[Agoric Sandbox] Creating wallet connection...");
     const wallet = await makeAgoricWalletConnection(
       state.watcher,
-      CONFIG.RPC_ENDPOINT
+      config.RPC_ENDPOINT
     );
 
     state.wallet = wallet;
@@ -387,14 +442,16 @@ async function signData({ data }) {
 
     // Ensure wallet is connected
     if (!state.wallet) {
-      await connectWallet();
+      await connectWallet({ network: state.network });
       watchWallet();
     }
 
     const signDoc = await makeADR036AminoDoc(data, state.wallet.address);
 
+    const config = getConfig(state.network);
+
     const signResponse = await keplr.signAmino(
-      CONFIG.CHAIN_ID,
+      config.CHAIN_ID,
       state.wallet.address,
       signDoc
     );
@@ -579,13 +636,14 @@ async function initialize() {
     // Setup chain storage watcher
     // This initializes the watcher that will be used by wallet connection
     console.log("[Agoric Sandbox] Setting up watcher...");
-    await setupWatcher();
+    await setupWatcher({ network: "devnet" });
 
     // Wait for watcher to sync initial data (brands, instances, etc.)
     console.log("[Agoric Sandbox] Waiting for initial chain data sync...");
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     state.isInitialized = true;
+    state.network = "devnet";
 
     updateStatus("Sandbox ready - waiting for commands", "success");
     console.log("[Agoric Sandbox] Ready to receive messages");
@@ -631,7 +689,7 @@ window.addEventListener("message", async (event) => {
 
     switch (type) {
       case "CONNECT_WALLET":
-        result = await connectWallet();
+        result = await connectWallet(data);
         watchWallet();
         break;
 
@@ -655,6 +713,7 @@ window.addEventListener("message", async (event) => {
           hasBrands: !!state.brands,
           hasInstance: !!state.contractInstance,
           brandsAvailable: state.brands ? Object.keys(state.brands) : [],
+          network: state.network,
         };
         break;
 
