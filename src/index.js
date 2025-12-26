@@ -43,7 +43,7 @@ if (typeof document !== "undefined") {
 export const networkConfigs = {
   mainnet: {
     CHAIN_ID: "agoric-3",
-    RPC_ENDPOINT: "https://main-a.rpc.agoric.net/:443",
+    RPC_ENDPOINT: "https://main-a.rpc.agoric.net:443",
     REST_ENDPOINT: "https://main-a.api.agoric.net",
     NETWORK_CONFIG_HREF: "https://followmain.agoric.net/network-config",
   },
